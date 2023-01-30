@@ -23,11 +23,13 @@ austraits <- load_austraits(path="data/austraits", version = "3.0.2")
 austraits_wide = as_wide_table(austraits)
 
 
+#############
 ############################# ALA trait summary prep ####################################
 
+
 # Traits marked as definitely of interest
-ord = data.frame(trait_name = c("plant_growth_form",  "woodiness", "life_history", "flowering_time", "plant_height", "leaf_compoundness", "fire_response","photosynthetic_pathway",
-                                "dispersal_syndrome", "dispersers", "reproductive_maturity", "reproductive_maturity_primary", "salt_tolerance", "inundation_tolerance","leaf_area","bud_bank_location","fruiting_time",
+ord = data.frame(trait_name = c("plant_growth_form",  "woodiness", "life_history", "plant_height", "leaf_compoundness", "fire_response","photosynthetic_pathway",
+                                "dispersal_syndrome", "dispersers", "reproductive_maturity", "reproductive_maturity_primary", "salt_tolerance", "inundation_tolerance","leaf_area","bud_bank_location","flowering_time","fruiting_time",
                                 "post_fire_recruitment","life_form","root_structure","germination","seed_storage_location","wood_density","fire_and_establishing","storage_organ",
                                 "serotiny","physical_defence","growth_habit","ploidy"))
 
@@ -48,6 +50,19 @@ austraits_wide_means = austraits_wide %>%
                       filter(trait_name %in% ord$trait_name) %>%
                       filter(str_detect(sample_age_class, "adult")) %>% 
                       filter(str_detect(collection_type, "field|literature|botanical_collection"))
+
+
+# convert all fruiting times and flowering times to months
+f = austraits_wide_means %>% filter(trait_name %in% c("flowering_time", "fruiting_time"))
+month = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+for (i in 1:length(f$trait_value)){
+  f1      <- unlist(strsplit(f$trait_value[i],""))
+  f2 = ifelse(f1 == "y", month, NA)
+  f3 = paste0(f2[complete.cases(f2)], collapse = "_")
+  f$trait_value[i] = f3
+}
+
+austraits_wide_means = rbind(austraits_wide_means %>% filter(!trait_name %in% c("flowering_time", "fruiting_time")), f)
 
 # Merge in the rankings
 austraits_wide_means = merge(austraits_wide_means, ord, by = "trait_name", all.x = T)
@@ -78,7 +93,6 @@ trait_type = located_data %>% select(trait_name, unit) %>% unique() %>% mutate(d
 
 #* Health Check - Is the API running?
 #* @get /health-check
-#* @head /health-check
 
 status = function(){
   list(
@@ -159,7 +173,8 @@ function(taxon = "", APNI_ID = ""){
   # If the summary contains traits...
   if(x1 != 0){
     
-      a = list(y, x1, z, paste0("There are ", x1, " traits available for ", y, ", with data for ", z, " further traits in the AusTraits database"))
+
+      a = data.frame(y, x1, z, paste0("There are ", x1, " traits available for ", y, ", with data for ", z, " further traits in the AusTraits database. These are accessible via the download CSV button or alternatively the entire database can be accessed at https://zenodo.org/record/5112001#.YutQ0HauaUk"))
     
       names(a) = c("taxon", "summary", "AusTraits", "explanation")
     
@@ -168,7 +183,8 @@ function(taxon = "", APNI_ID = ""){
   # If the summary has no traits but some exist in AusTraits
    }else if(x1 == 0 & x != 0){
     
-      a = list(y, x1, z, print(y, " has data for ", x, " traits in the AusTraits database"))
+
+      a = data.frame(y, x1, z, print(y, " has data for ", x, " traits in the AusTraits database. These are accessible via the download CSV button or alternatively the entire database can be accessed at https://zenodo.org/record/5112001#.YutQ0HauaUk"))
       
       names(a) = c("taxon", "summary", "AusTraits", "explanation")
       
@@ -177,7 +193,7 @@ function(taxon = "", APNI_ID = ""){
   # If there is no data for the taxon in AusTraits
   }else{
     
-      a = list(y, x1, z, print("There is currently no data for ", y, " in the AusTraits database"))
+      a = data.frame(y, x1, z, print("There is currently no data for ", y, " in the AusTraits database. Search for another species or access the entire database at https://zenodo.org/record/5112001#.YutQ0HauaUk"))
     
       names(a) = c("taxon", "summary", "AusTraits", "explanation")
     
@@ -209,6 +225,7 @@ function(taxon = "", APNI_ID = ""){
     taxon = data$taxon_name[1]
     
   }
+
   
   ############################ manipulate austraits to prepare for averages #################
   
@@ -238,8 +255,38 @@ function(taxon = "", APNI_ID = ""){
     
     #glue it to the dataframe
     output = rbind(output, z)
+
   }
   
+  output$trait_values = gsub("_", " ", output$trait_values)
+  
+  output$asterisk = ifelse(str_detect(output$trait_values, ","), "*", "")
+  
+  # clean up flowering times
+  if ("flowering_time" %in% output$trait_name){
+  flower = output$trait_values[output$trait_name == "flowering_time"]
+  flower = gsub(",", "", flower)
+  flower = unlist(str_split(flower, pattern = " "))
+  flower = flower %>% unique()
+  flower = flower[match(month, flower)]
+  flower = paste(flower[complete.cases(flower)], collapse = ", ")
+  output$trait_values[output$trait_name == "flowering_time"] = flower
+  }
+  
+  if ("fruiting_time" %in% output$trait_name){
+  fruit = output$trait_values[output$trait_name == "fruiting_time"]
+  fruit = gsub(",", "", fruit)
+  fruit = unlist(str_split(fruit, pattern = " "))
+  fruit = fruit %>% unique()
+  fruit = fruit[match(month, fruit)]
+  fruit = paste(fruit[complete.cases(fruit)], collapse = ", ")
+  output$trait_values[output$trait_name == "fruiting_time"] = fruit
+
+  }
+  
+  output$trait_name = gsub("_", " ", output$trait_name)
+  output$trait_name = str_to_sentence(output$trait_name)
+  output = output %>% mutate(trait_values = str_c(trait_values,"  ", asterisk)) %>% select(-asterisk)
   ###################### Make the numeric trait summary  ####################
   
   # Create a reference list of taxon-trait combinations and arrange them by ranking
@@ -273,33 +320,33 @@ function(taxon = "", APNI_ID = ""){
     ############################################################################
     
     # calculate for individual_mean and raw_value and unknown
-    r_i_u = rbind(x_list[["raw_value"]], x_list[["individual_mean"]], x_list[["unknown"]])  %>% group_by(dataset_id, site_name) %>% summarise(mean = mean(trait_value), min = NA, max = NA)
+
+    r_i_u = rbind(x_list[["raw_value"]], x_list[["individual_mean"]], x_list[["unknown"]])  %>% group_by(dataset_id, site_name) %>% summarise(mean = mean(trait_value))
     
     
     # Calculate for raw_value without sites
-    raw_value1 = b %>% group_by(dataset_id) %>% summarise( mean = mean(trait_value), min = NA, max = NA) %>% mutate(site_name = NA) %>% select(dataset_id, site_name, mean, min, max)
+    raw_value1 = b %>% group_by(dataset_id) %>% summarise( mean = mean(trait_value)) %>% mutate(site_name = NA) %>% select(dataset_id, site_name, mean)
     
     
     # Now the expert mins and maxes
     expert = rbind(x_list[["expert_min"]], x_list[["expert_max"]])
     
     # make an average if a range is given
-    experts = expert %>% group_by(dataset_id, site_name) %>% summarise( mean = mean(trait_value), min = min(trait_value), max = max(trait_value), n = n())
+    experts = expert %>% group_by(dataset_id, site_name) %>% summarise(mean = mean(trait_value), n = n())
     experts = experts %>% filter(n > 1) %>% select(-n)
     
     # For the remainder, simply add them to the relevant column, either min or max
     e = expert %>% filter(!(dataset_id %in% experts$dataset_id))
-    min = e %>% filter(value_type == "expert_min") %>% mutate(mean = NA, min = trait_value, max = NA) %>% select(dataset_id, site_name, mean, min, max)
-    max = e %>% filter(value_type == "expert_max") %>% mutate(mean = NA, min = NA, max = trait_value) %>% select(dataset_id, site_name, mean, min, max)
     
-    experts = rbind(experts, min, max)
+    
+    experts = rbind(experts)
     
     # stick them together with the other sites
-    site_means = rbind(x_list[["site_mean"]] %>% mutate(mean = trait_value, min = NA, max = NA) %>% select(dataset_id, site_name, mean, min, max), 
-                       x_list[["multisite_mean"]] %>% mutate(mean = trait_value, min = NA, max = NA) %>% select(dataset_id, site_name, mean, min, max),
+    site_means = rbind(x_list[["site_mean"]] %>% mutate(mean = trait_value) %>% select(dataset_id, site_name, mean), 
+                       x_list[["multisite_mean"]] %>% mutate(mean = trait_value) %>% select(dataset_id, site_name, mean),
                        r_i_u, 
                        raw_value1,
-                       x_list[["expert_mean"]] %>% mutate(mean = trait_value, min = NA, max = NA) %>% select(dataset_id, site_name, mean, min, max),
+                       x_list[["expert_mean"]] %>% mutate(mean = trait_value) %>% select(dataset_id, site_name, mean),
                        experts
     )
     
@@ -309,15 +356,12 @@ function(taxon = "", APNI_ID = ""){
                               
                               definition = num_traits$definition[i],
                               
-                              mean_type = rbind("min", "mean", "max"),
-                              
                               # max and min include all the site means
-                              mean = rbind(min = min(site_means$min, na.rm = T),
-                                           mean = mean(site_means$mean, na.rm = T),
-                                           max = max(site_means$max, na.rm = T)),
+                              mean = mean(site_means$mean, na.rm = T),
                               
                               unit = num_traits$unit[i]
                               
+
                               
                               
     )
@@ -336,19 +380,30 @@ function(taxon = "", APNI_ID = ""){
                                                                x_list[["multisite_max"]]$trait_value,
                                                                overall_mean$mean[overall_mean$mean_type == "max"], na.rm = T)
       
-      
-    }
+
     
-    # repeat for the site min values
-    if (length( x_list[["site_min"]]$trait_value > 0)){
+    
+    
+    ##################### Min and Max temporary patch ##############################
+    # If theres more than 1 observation:
+     
+    if (nrow(a) > 1){
+
       
-      overall_mean$mean[overall_mean$mean_type == "min"]= min(x_list[["site_min"]]$trait_value,
-                                                              overall_mean$mean[overall_mean$mean_type == "min"], na.rm = T)
+      overall_mean$min = min(a$trait_value)
+      overall_mean$max = max(a$trait_value)
       
+
+
+    }else{
+      overall_mean$min = NA
+      overall_mean$max = NA
+
     }
     
     # stick it to the previous observation
     output1 = rbind(output1, overall_mean)
+
     
     # clean it up for presentation
     row.names(output1) <- as.character(1:length(output1$mean))
@@ -358,14 +413,12 @@ function(taxon = "", APNI_ID = ""){
     
     # I'm (incorrectly) rounding to 3 significant figures over all traits. A more sophisticated function is needed
     output1$mean = signif(as.numeric(output1$mean), 3)
-    
-    
+    output1$min = signif(as.numeric(output1$min), 3)
+    output1$max = signif(as.numeric(output1$max), 3)
   }
   
   ################################## Final changes before sending ##################
-  
-  # More cleaning for presentation
-  output1 = pivot_wider(output1, names_from = mean_type, values_from = mean )
+
   
   output1 = output1 %>% select(taxon_name, trait_name, definition, min, mean, max, unit)
   
@@ -388,6 +441,8 @@ function(taxon = "", APNI_ID = ""){
     print("No data can be found for this taxon.")
     
   }
+  }
+  
 }
 #################################################################################
 # 1.3 Returns a table of the raw data used to calculate the species means
@@ -483,9 +538,11 @@ function(req, res){
   taxa = req$body$taxa
   
   if (length(taxa) == 0){
+
     
     taxa = unique(located_data$taxon_name)
     
+
   }
   
   #subset the data to the taxa and traits
@@ -648,7 +705,7 @@ function(req, res){
     traits = unique(austraits_wide$trait_name)
     
   }
-  
+
   # subset
   x = austraits_wide %>% 
     filter(taxon_name %in% taxa) %>% 
@@ -657,6 +714,7 @@ function(req, res){
   # remove NAs
   x =  x %>% mutate_all(coalesce, "")
   
+
   if(nrow(x) > 100000){
     
     x = data.frame(Error = c("The file size is too large. The entire AusTraits database can be downloaded from the AusTraits webpage", "https://zenodo.org/record/5112001"))
