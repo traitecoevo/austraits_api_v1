@@ -93,6 +93,7 @@ trait_type = located_data %>% select(trait_name, unit) %>% unique() %>% mutate(d
 
 #* Health Check - Is the API running?
 #* @get /health-check
+#* @head /health-check
 
 status = function(){
   list(
